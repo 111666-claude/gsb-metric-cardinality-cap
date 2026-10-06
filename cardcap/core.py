@@ -12,7 +12,7 @@ class Counter:
 
 def label_key(labels):
     """把标签集合写成一个组合串。"""
-    return ",".join("%s=%s" % (k, labels[k]) for k in labels)
+    return ",".join("%s=%s" % (k, labels[k]) for k in sorted(labels))
 
 
 def ingest(events, cap, counter):
@@ -22,21 +22,22 @@ def ingest(events, cap, counter):
     for ev in events:
         metric = ev["metric"]
         key = label_key(ev.get("labels", {}))
-        bucket = seen.setdefault(metric, [])
-        for existing in bucket:
-            counter.scanned += 1
-            if existing == key:
-                break
-        bucket.append(key)
-        total = sum(len(v) for v in seen.values())
-        if total > cap:
-            action = "drop"
-        else:
+        bucket = seen.setdefault(metric, set())
+        counter.scanned += 1
+        if key in bucket:
             action = "keep"
+            out_key = key
+        elif len(bucket) < cap:
+            bucket.add(key)
+            action = "keep"
+            out_key = key
+        else:
+            action = "merge"
+            out_key = OVERFLOW
         out.append({
             "metric": metric,
-            "key": key,
+            "key": out_key,
             "action": action,
-            "cardinality": total,
+            "cardinality": len(bucket),
         })
     return out
