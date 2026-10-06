@@ -12,31 +12,32 @@ class Counter:
 
 def label_key(labels):
     """把标签集合写成一个组合串。"""
-    return ",".join("%s=%s" % (k, labels[k]) for k in labels)
+    return ",".join("%s=%s" % (k, labels[k]) for k in sorted(labels))
 
 
 def ingest(events, cap, counter):
     """逐条收采样，返回每条采样的判定结果。"""
-    seen = {}
+    ledgers = {}
     out = []
     for ev in events:
         metric = ev["metric"]
         key = label_key(ev.get("labels", {}))
-        bucket = seen.setdefault(metric, [])
-        for existing in bucket:
-            counter.scanned += 1
-            if existing == key:
-                break
-        bucket.append(key)
-        total = sum(len(v) for v in seen.values())
-        if total > cap:
-            action = "drop"
-        else:
+        state = ledgers.setdefault(metric, {"keys": set(), "overflow": False})
+        counter.scanned += 1
+        if key in state["keys"]:
             action = "keep"
+        elif len(state["keys"]) < cap:
+            state["keys"].add(key)
+            action = "keep"
+        else:
+            state["overflow"] = True
+            action = "merge"
+            key = OVERFLOW
+        cardinality = len(state["keys"]) + (1 if state["overflow"] else 0)
         out.append({
             "metric": metric,
             "key": key,
             "action": action,
-            "cardinality": total,
+            "cardinality": cardinality,
         })
     return out
